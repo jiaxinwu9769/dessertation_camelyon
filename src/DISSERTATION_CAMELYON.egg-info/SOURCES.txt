@@ -1,0 +1,6 @@
+setup.py
+src/DISSERTATION_CAMELYON.egg-info/PKG-INFO
+src/DISSERTATION_CAMELYON.egg-info/SOURCES.txt
+src/DISSERTATION_CAMELYON.egg-info/dependency_links.txt
+src/DISSERTATION_CAMELYON.egg-info/requires.txt
+src/DISSERTATION_CAMELYON.egg-info/top_level.txt
