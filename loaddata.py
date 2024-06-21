@@ -16,7 +16,6 @@ def load_csv(file_path):
     return pd.read_csv(file_path)
 
 # 加载数据 
-# 加载数据 
 # train data
 train_x = load_h5_data('data/camelyonpatch_level_2_split_train_x.h5')
 train_y = load_h5_labels('data/camelyonpatch_level_2_split_train_y.h5')
@@ -41,3 +40,14 @@ print(f"Test Y shape: {test_y.shape}, dtype: {test_y.dtype}")
 print("Train meta shape:", train_meta.shape)
 print("Validation meta shape:", valid_meta.shape)
 print("Test meta shape:", test_meta.shape)
+print("--------------------------------------------------------------------")
+
+# 查看训练标签的唯一值和计数
+unique_labels, counts = torch.unique(train_y, return_counts=True)
+label_distribution = dict(zip(unique_labels.tolist(), counts.tolist()))
+print("Train label distribution:", label_distribution)
+
+# 查看元数据的信息
+print("Train meta info:")
+print(train_meta.head())
+
