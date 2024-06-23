@@ -6,6 +6,9 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from PIL import Image
 import random
+from skimage.color import rgb2gray
+from skimage import img_as_float
+import numpy as np
 
 # 定义数据增强变换
 class CustomTransform:
@@ -25,8 +28,24 @@ data_transform = transforms.Compose([
     CustomTransform(),
     transforms.ColorJitter(brightness=0.25, contrast=0.75, saturation=0.25, hue=0.04),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # 假设图像是RGB
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # 图像是RGB
 ])
+
+# 定义组织分割函数
+def tissue_segmentation(image):
+    # 将纯黑色像素转换为纯白色像素
+    image[(image == 0).all(axis=-1)] = [255, 255, 255]
+    
+    # 转换为灰度图像
+    gray_image = rgb2gray(image)
+    
+    # 将灰度图像归一化到 [0, 1]
+    gray_image = img_as_float(gray_image)
+    
+    # 将小于或等于 0.8 的像素视为组织
+    tissue_mask = gray_image <= 0.8
+    
+    return tissue_mask
 
 # 定义自定义数据集类
 class CamelyonDataset(Dataset):
@@ -51,7 +70,15 @@ class CamelyonDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        image = Image.fromarray(self.data[idx].numpy().astype('uint8'), 'RGB')
+        image = self.data[idx].numpy().astype('uint8')
+        
+        # 进行组织分割
+        tissue_mask = tissue_segmentation(image)
+        
+        # 应用组织分割掩码
+        image[tissue_mask == False] = [255, 255, 255]
+        
+        image = Image.fromarray(image, 'RGB')
         label = self.labels[idx]
         if self.transform:
             image = self.transform(image)
