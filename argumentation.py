@@ -9,6 +9,8 @@ import random
 from skimage.color import rgb2gray
 from skimage import img_as_float
 import numpy as np
+import matplotlib.pyplot as plt
+import pywt
 
 # 定义数据增强变换
 class CustomTransform:
@@ -47,6 +49,15 @@ def tissue_segmentation(image):
     
     return tissue_mask
 
+# 定义小波变换函数
+def apply_dwt_per_channel(image):
+    channels = []
+    for i in range(image.shape[2]):
+        coeffs = pywt.dwt2(image[:, :, i], 'haar')
+        LL, (LH, HL, HH) = coeffs
+        channels.append(LL)
+    return np.stack(channels, axis=-1)
+
 # 定义自定义数据集类
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None):
@@ -78,33 +89,51 @@ class CamelyonDataset(Dataset):
         # 应用组织分割掩码
         image[tissue_mask == False] = [255, 255, 255]
         
-        image = Image.fromarray(image, 'RGB')
+        # 应用小波变换到每个通道
+        dwt_image = apply_dwt_per_channel(image)
+        
+        original_image = Image.fromarray(image, 'RGB')
+        dwt_image = (dwt_image - dwt_image.min()) / (dwt_image.max() - dwt_image.min())  # 归一化
+        dwt_image_pil = Image.fromarray((dwt_image * 255).astype('uint8'), 'RGB')
+        
         label = self.labels[idx]
         if self.transform:
-            image = self.transform(image)
-        return image, label
+            transformed_image = self.transform(dwt_image_pil)
+        else:
+            transformed_image = transforms.ToTensor()(dwt_image_pil)
+        return transforms.ToTensor()(original_image), transformed_image, label
 
-# 创建数据集和数据加载器
+# 创建训练数据集和数据加载器
 train_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_train_x.h5',
                                 'camedata/camelyonpatch_level_2_split_train_y.h5',
                                 'camedata/camelyonpatch_level_2_split_train_meta.csv',
                                 transform=data_transform)
 
-valid_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_valid_x.h5',
-                                'camedata/camelyonpatch_level_2_split_valid_y.h5',
-                                'camedata/camelyonpatch_level_2_split_valid_meta.csv',
-                                transform=data_transform)
-
-test_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_test_x.h5',
-                               'camedata/camelyonpatch_level_2_split_test_y.h5',
-                               'camedata/camelyonpatch_level_2_split_test_meta.csv',
-                               transform=data_transform)
-
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-# 测试数据加载器
-for images, labels in train_loader:
-    print(images.shape, labels.shape)
+# 展示函数
+def show_images(original_images, transformed_images):
+    fig, axes = plt.subplots(3, 2, figsize=(15, 15))
+    for i in range(3):
+        original = original_images[i]
+        transformed = transformed_images[i]
+
+        original_np = original.permute(1, 2, 0).numpy()
+        original_np = original_np * 255
+        axes[i, 0].imshow(original_np.astype(np.uint8))
+        axes[i, 0].set_title("Original Image")
+        axes[i, 0].axis('off')
+
+        transformed_np = transformed.permute(1, 2, 0).numpy()
+        transformed_np = transformed_np * 0.5 + 0.5  # 反归一化
+        transformed_np = transformed_np * 255
+        axes[i, 1].imshow(transformed_np.astype(np.uint8))
+        axes[i, 1].set_title("Transformed Image")
+        axes[i, 1].axis('off')
+
+    plt.show()
+
+# 获取一个批次的数据并展示三个示例
+for original_images, transformed_images, labels in train_loader:
+    show_images(original_images[:3], transformed_images[:3])
     break
