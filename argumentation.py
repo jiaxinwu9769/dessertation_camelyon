@@ -14,7 +14,28 @@ import pywt
 
 # 定义数据增强变换
 class CustomTransform:
-    def __call__(self, img):
+     """
+    Custom data augmentation transform that applies random horizontal flip and random rotation.
+    
+    Methods
+    -------
+    __call__(img)
+        Applies the transformation to the input image.
+    """
+     def __call__(self, img):
+        """
+        Apply random horizontal flip and random rotation to the given image.
+
+        Parameters
+        ----------
+        img : PIL.Image
+            Input image to be transformed.
+
+        Returns
+        -------
+        PIL.Image
+            Transformed image.
+        """
         # 水平翻转
         if random.random() > 0.5:
             img = F.hflip(img)
@@ -29,12 +50,26 @@ class CustomTransform:
 data_transform = transforms.Compose([
     CustomTransform(),
     transforms.ColorJitter(brightness=0.25, contrast=0.75, saturation=0.25, hue=0.04),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # 图像是RGB
+    transforms.ToTensor(), #将图像转换为 PyTorch 张量并将像素值缩放到范围 [0, 1]。
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # 图像是RGB,使用每个信道给定的平均值和标准差对张量进行归一化。
 ])
+
 
 # 定义组织分割函数
 def tissue_segmentation(image):
+    """
+    Segments tissue regions in an image by thresholding grayscale pixel values.
+    
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Input RGB image as a numpy array of shape (height, width, 3).
+    
+    Returns
+    -------
+    numpy.ndarray
+        Binary mask where tissue regions are marked as True and non-tissue regions as False.
+    """
     # 将纯黑色像素转换为纯白色像素
     image[(image == 0).all(axis=-1)] = [255, 255, 255]
     
@@ -49,6 +84,7 @@ def tissue_segmentation(image):
     
     return tissue_mask
 
+
 # 定义小波变换函数
 def apply_dwt_per_channel(image):
     channels = []
@@ -57,6 +93,7 @@ def apply_dwt_per_channel(image):
         LL, (LH, HL, HH) = coeffs
         channels.append(LL)
     return np.stack(channels, axis=-1)
+
 
 # 定义自定义数据集类
 class CamelyonDataset(Dataset):
