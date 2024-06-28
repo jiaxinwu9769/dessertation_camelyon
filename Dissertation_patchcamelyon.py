@@ -14,6 +14,7 @@ import pywt
 import torch.optim as optim
 import time
 import copy
+import torch.nn as nn  # 添加这一行来导入 torch.nn
 
 # 定义数据增强函数
 def apply_transforms(img):
@@ -108,19 +109,19 @@ class CamelyonDataset(Dataset):
         return transforms.ToTensor()(original_image), transformed_image, label
 
 # 数据准备
-train_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_train_x.h5',
-                                'camedata/camelyonpatch_level_2_split_train_y.h5',
-                                'camedata/camelyonpatch_level_2_split_train_meta.csv',
+train_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_train_x.h5',
+                                '../camedata/camelyonpatch_level_2_split_train_y.h5',
+                                '../camedata/camelyonpatch_level_2_split_train_meta.csv',
                                 transform=apply_transforms)
 
-val_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_val_x.h5',
-                              'camedata/camelyonpatch_level_2_split_val_y.h5',
-                              'camedata/camelyonpatch_level_2_split_val_meta.csv',
+val_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_valid_x.h5',
+                              '../camedata/camelyonpatch_level_2_split_valid_y.h5',
+                              '../camedata/camelyonpatch_level_2_split_valid_meta.csv',
                               transform=apply_transforms)
 
-test_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_test_x.h5',
-                               'camedata/camelyonpatch_level_2_split_test_y.h5',
-                               'camedata/camelyonpatch_level_2_split_test_meta.csv',
+test_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_test_x.h5',
+                               '../camedata/camelyonpatch_level_2_split_test_y.h5',
+                               '../camedata/camelyonpatch_level_2_split_test_meta.csv',
                                transform=apply_transforms)
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
@@ -128,7 +129,7 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
 # 定义Inception v3模型
-model = models.inception_v3(pretrained=True)
+model = models.inception_v3(weights=models.Inception_V3_Weights.DEFAULT)
 model.aux_logits = False  # 禁用辅助分类器
 model.fc = nn.Linear(2048, 2)  # 修改最后一层以适应我们的二分类任务
 
