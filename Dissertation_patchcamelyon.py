@@ -14,32 +14,72 @@ import pywt
 import torch.optim as optim
 import time
 import copy
-import torch.nn as nn  # 添加这一行来导入 torch.nn
+import torch.nn as nn
 
-# 定义数据增强函数
-def apply_transforms(img):
+# 1.定义数据增强函数
+def apply_transforms(image):
+    """Applies a series of data augmentation transformations to an image.
+
+    This function performs the following transformations:
+    - Random Horizontal Flip: With a probability of 0.5, the image is flipped horizontally.
+    - Random Rotation: The image is randomly rotated by 90, 180, or 270 degrees.
+    - Color Jitter: Randomly changes the brightness, contrast, saturation, and hue of the image.
+    - Conversion to Tensor: The image is converted to a PyTorch tensor.
+    - Normalization: The image tensor is normalized with mean [0.5, 0.5, 0.5] and std [0.5, 0.5, 0.5].
+
+    Args:
+        image (PIL.Image): Input image to be transformed.
+
+    Returns:
+        torch.Tensor: Transformed image as a tensor, normalized to a specified mean and standard deviation.
+
+    Example:
+        >>> from PIL import Image
+        >>> img = Image.open('path/to/image.jpg')
+        >>> transformed_img = apply_transforms(img)
+    """
     # 随机水平翻转
     if random.random() > 0.5:
-        img = F.hflip(img)
+        image = F.hflip(image)
     
     # 随机旋转
     angles = [90, 180, 270]
     angle = random.choice(angles)
-    img = F.rotate(img, angle)
+    image = F.rotate(image, angle)
     
     # Color jitter
-    img = transforms.ColorJitter(brightness=0.25, contrast=0.75, saturation=0.25, hue=0.04)(img)
+    image = transforms.ColorJitter(brightness=0.25, contrast=0.75, saturation=0.25, hue=0.04)(image)
     
     # Convert to tensor
-    img_tensor = F.to_tensor(img)
+    image_tensor = F.to_tensor(image)
     
     # Normalize
-    img_tensor = F.normalize(img_tensor, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    image_tensor = F.normalize(image_tensor, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     
-    return img_tensor
+    return image_tensor
 
-# 定义组织分割函数
+# 2.定义组织分割函数
 def tissue_segmentation(image):
+    """Segments tissue regions in an image by thresholding grayscale pixel values.
+
+    This function performs the following steps:
+    - Converts pure black pixels to pure white pixels.
+    - Converts the RGB image to a grayscale image.
+    - Normalizes the grayscale image to the range [0, 1].
+    - Creates a binary mask where pixels with values less than or equal to 0.8 are considered as tissue.
+
+    Args:
+        image (numpy.ndarray): Input RGB image as a numpy array of shape (height, width, 3).
+
+    Returns:
+        numpy.ndarray: Binary mask where tissue regions are marked as True and non-tissue regions as False.
+
+    Example:
+        >>> import numpy as np
+        >>> from skimage import io
+        >>> image = io.imread('path/to/image.jpg')
+        >>> tissue_mask = tissue_segmentation(image)
+    """
     # 将纯黑色像素转换为纯白色像素
     image[(image == 0).all(axis=-1)] = [255, 255, 255]
     
@@ -54,7 +94,7 @@ def tissue_segmentation(image):
     
     return tissue_mask
 
-# 定义小波变换函数
+# 3.定义小波变换函数
 def apply_dwt_per_channel(image):
     channels = []
     for i in range(image.shape[2]):
@@ -63,17 +103,15 @@ def apply_dwt_per_channel(image):
         channels.append(LL)
     return np.stack(channels, axis=-1)
 
-# 定义自定义数据集类
+# 4.定义自定义数据集类
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None):
-        self.data = self.load_h5_data(data_file)
+        self.data_file = data_file
         self.labels = self.load_h5_labels(labels_file)
         self.meta = self.load_csv(meta_file)
         self.transform = transform
-
-    def load_h5_data(self, file_path):
-        with h5py.File(file_path, 'r') as file:
-            return torch.tensor(file['x'][:].astype(np.float32))
+        with h5py.File(data_file, 'r') as file:
+            self.data_length = file['x'].shape[0]
 
     def load_h5_labels(self, file_path):
         with h5py.File(file_path, 'r') as file:
@@ -83,10 +121,11 @@ class CamelyonDataset(Dataset):
         return pd.read_csv(file_path)
 
     def __len__(self):
-        return len(self.data)
+        return self.data_length
 
     def __getitem__(self, idx):
-        image = self.data[idx].numpy().astype('uint8')
+        with h5py.File(self.data_file, 'r') as file:
+            image = file['x'][idx].astype('uint8')
         
         # 进行组织分割
         tissue_mask = tissue_segmentation(image)
@@ -96,83 +135,48 @@ class CamelyonDataset(Dataset):
         
         # 应用小波变换到每个通道
         dwt_image = apply_dwt_per_channel(image)
-        
-        original_image = Image.fromarray(image, 'RGB')
-        dwt_image = (dwt_image - dwt_image.min()) / (dwt_image.max() - dwt_image.min())  # 归一化
-        dwt_image_pil = Image.fromarray((dwt_image * 255).astype('uint8'), 'RGB')
+
+        # 确保图像尺寸至少为75x75
+        dwt_image_resized = Image.fromarray((dwt_image * 255).astype('uint8'), 'RGB')
+        dwt_image_resized = F.resize(dwt_image_resized, (75, 75))
+
+        # 进行数据增强
+        transformed_image = apply_transforms(dwt_image_resized)
         
         label = self.labels[idx]
-        if self.transform:
-            transformed_image = self.transform(dwt_image_pil)
-        else:
-            transformed_image = apply_transforms(dwt_image_pil)
-        return transforms.ToTensor()(original_image), transformed_image, label
+        
+        return transforms.ToTensor()(dwt_image_resized), transformed_image, label
 
-# 数据准备
-train_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_train_x.h5',
-                                '../camedata/camelyonpatch_level_2_split_train_y.h5',
-                                '../camedata/camelyonpatch_level_2_split_train_meta.csv',
-                                transform=apply_transforms)
+# 定义模型
+class CamelyonClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = models.inception_v3(pretrained=True)
+        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Sequential(nn.Linear(2048, 1), nn.Sigmoid())
 
-val_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_valid_x.h5',
-                              '../camedata/camelyonpatch_level_2_split_valid_y.h5',
-                              '../camedata/camelyonpatch_level_2_split_valid_meta.csv',
-                              transform=apply_transforms)
+        n_params = sum([p.numel() for p in self.parameters()])
+        print("\n")
+        print("# " * 50)
+        print(f"Inception v3 initialized with {n_params:.3e} parameters")
+        print("# " * 50)
+        print("\n")
 
-test_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_test_x.h5',
-                               '../camedata/camelyonpatch_level_2_split_test_y.h5',
-                               '../camedata/camelyonpatch_level_2_split_test_meta.csv',
-                               transform=apply_transforms)
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
-
-# 定义Inception v3模型
-model = models.inception_v3(weights=models.Inception_V3_Weights.DEFAULT)
-model.aux_logits = False  # 禁用辅助分类器
-model.fc = nn.Linear(2048, 2)  # 修改最后一层以适应我们的二分类任务
-
-# 设置损失函数和优化器
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-# 检查是否有可用的GPU
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model.to(device)
-
-# 展示函数
-def show_images(original_images, transformed_images):
-    fig, axes = plt.subplots(5, 2, figsize=(15, 25))
-    for i in range(5):
-        original = original_images[i]
-        transformed = transformed_images[i]
-
-        original_np = original.permute(1, 2, 0).numpy()
-        original_np = original_np * 255
-        axes[i, 0].imshow(original_np.astype(np.uint8))
-        axes[i, 0].set_title("Original Image")
-        axes[i, 0].axis('off')
-
-        transformed_np = transformed.permute(1, 2, 0).numpy()
-        transformed_np = transformed_np * 0.5 + 0.5  # 反归一化
-        transformed_np = transformed_np * 255
-        axes[i, 1].imshow(transformed_np.astype(np.uint8))
-        axes[i, 1].set_title("Transformed Image")
-        axes[i, 1].axis('off')
-
-    plt.show()
-
-# 获取一个批次的数据并展示五个示例
-for original_images, transformed_images, labels in train_loader:
-    show_images(original_images[:5], transformed_images[:5])
-    break
-
-# 训练函数
+# 定义训练函数
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10):
-    since = time.time()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
+    since = time.time()
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch}/{num_epochs - 1}')
@@ -191,15 +195,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             running_corrects = 0
 
             # 遍历数据
-            for original_images, transformed_images, labels in dataloader:
-                original_images, transformed_images, labels = original_images.to(device), transformed_images.to(device), labels.to(device)
+            for inputs, _, labels in dataloader:
+                inputs = inputs.to(device)
+                labels = labels.to(device).unsqueeze(1)  # 由于输出为单个值，需要增加一个维度
                 
                 # 前向传播
                 # 只在训练阶段计算和更新梯度
                 with torch.set_grad_enabled(phase == 'train'):
-                    outputs = model(transformed_images)
-                    _, preds = torch.max(outputs, 1)
-                    loss = criterion(outputs, labels.long())
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
+                    preds = outputs > 0.5  # 二分类任务的预测值
 
                     # 仅在训练阶段进行反向传播和优化
                     if phase == 'train':
@@ -208,7 +213,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                         optimizer.step()
 
                 # 统计
-                running_loss += loss.item() * transformed_images.size(0)
+                running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
 
             epoch_loss = running_loss / len(dataloader.dataset)
@@ -229,23 +234,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     model.load_state_dict(best_model_wts)
     return model
 
-# 训练模型
-model = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10)
-
-# 测试函数
+# 定义测试函数
 def test_model(model, test_loader, criterion):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
     model.eval()
     running_loss = 0.0
     running_corrects = 0
 
     with torch.no_grad():
-        for original_images, transformed_images, labels in test_loader:
-            original_images, transformed_images, labels = original_images.to(device), transformed_images.to(device), labels.to(device)
-            outputs = model(transformed_images)
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels.long())
+        for inputs, _, labels in test_loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device).unsqueeze(1)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            preds = outputs > 0.5
 
-            running_loss += loss.item() * transformed_images.size(0)
+            running_loss += loss.item() * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
 
     test_loss = running_loss / len(test_loader.dataset)
@@ -253,14 +259,44 @@ def test_model(model, test_loader, criterion):
 
     print(f'Test Loss: {test_loss:.4f} Acc: {test_acc:.4f}')
 
-# 测试模型
-test_model(model, test_loader, criterion)
+# 主函数
+if __name__ == '__main__':
+    # 数据准备
+    train_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_train_x_subset.h5',
+                                    'camedata/camelyonpatch_level_2_split_train_y_subset.h5',
+                                    'camedata/camelyonpatch_level_2_split_train_meta.csv',
+                                    transform=apply_transforms)
 
-# 保存模型
-torch.save(model.state_dict(), 'best_model.pth')
+    val_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_valid_x_subset.h5',
+                                  'camedata/camelyonpatch_level_2_split_valid_y_subset.h5',
+                                  'camedata/camelyonpatch_level_2_split_valid_meta.csv',
+                                  transform=apply_transforms)
 
-# 打印模型参数数量
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    test_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_test_x_subset.h5',
+                                   'camedata/camelyonpatch_level_2_split_test_y_subset.h5',
+                                   'camedata/camelyonpatch_level_2_split_test_meta.csv',
+                                   transform=apply_transforms)
 
-print(f'Total Parameters: {count_parameters(model)}')
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    # 定义损失函数和优化器
+    model = CamelyonClassifier()
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # 训练模型
+    model = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10)
+
+    # 测试模型
+    test_model(model, test_loader, criterion)
+
+    # 保存模型
+    torch.save(model.state_dict(), 'best_model.pth')
+
+    # 打印模型参数数量
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f'Total Parameters: {count_parameters(model)}')
