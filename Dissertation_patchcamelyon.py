@@ -9,8 +9,6 @@ import random
 from skimage.color import rgb2gray
 from skimage import img_as_float
 import numpy as np
-import matplotlib.pyplot as plt
-import pywt
 import torch.optim as optim
 import time
 import copy
@@ -94,15 +92,6 @@ def tissue_segmentation(image):
     
     return tissue_mask
 
-# 3.定义小波变换函数
-def apply_dwt_per_channel(image):
-    channels = []
-    for i in range(image.shape[2]):
-        coeffs = pywt.dwt2(image[:, :, i], 'haar')
-        LL, (LH, HL, HH) = coeffs
-        channels.append(LL)
-    return np.stack(channels, axis=-1)
-
 # 4.定义自定义数据集类
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None):
@@ -115,7 +104,8 @@ class CamelyonDataset(Dataset):
 
     def load_h5_labels(self, file_path):
         with h5py.File(file_path, 'r') as file:
-            return torch.tensor(file['y'][:].astype(np.float32))
+            labels = file['y'][:].astype(np.float32)
+            return torch.tensor(labels).view(-1, 1)  # 调整标签形状为 (batch_size, 1)
 
     def load_csv(self, file_path):
         return pd.read_csv(file_path)
@@ -132,42 +122,33 @@ class CamelyonDataset(Dataset):
         
         # 应用组织分割掩码
         image[tissue_mask == False] = [255, 255, 255]
-        
-        # 应用小波变换到每个通道
-        dwt_image = apply_dwt_per_channel(image)
-
-        # 确保图像尺寸至少为75x75
-        dwt_image_resized = Image.fromarray((dwt_image * 255).astype('uint8'), 'RGB')
-        dwt_image_resized = F.resize(dwt_image_resized, (75, 75))
 
         # 进行数据增强
-        transformed_image = apply_transforms(dwt_image_resized)
+        image = Image.fromarray(image, 'RGB')
+        transformed_image = apply_transforms(image)
         
         label = self.labels[idx]
         
-        return transforms.ToTensor()(dwt_image_resized), transformed_image, label
+        return transforms.ToTensor()(image), transformed_image, label
 
 # 定义模型
 class CamelyonClassifier(nn.Module):
     def __init__(self):
         super().__init__()
-        backbone = models.inception_v3(pretrained=True)
-        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Sequential(nn.Linear(2048, 1), nn.Sigmoid())
+        backbone = models.resnet18(pretrained=True)
+        num_ftrs = backbone.fc.in_features
+        backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        self.backbone = backbone
 
         n_params = sum([p.numel() for p in self.parameters()])
         print("\n")
         print("# " * 50)
-        print(f"Inception v3 initialized with {n_params:.3e} parameters")
+        print(f"ResNet18 initialized with {n_params:.3e} parameters")
         print("# " * 50)
         print("\n")
 
     def forward(self, x):
-        x = self.backbone(x)
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
+        return self.backbone(x)
 
 # 定义训练函数
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10):
@@ -197,7 +178,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             # 遍历数据
             for inputs, _, labels in dataloader:
                 inputs = inputs.to(device)
-                labels = labels.to(device).unsqueeze(1)  # 由于输出为单个值，需要增加一个维度
+                labels = labels.to(device)
                 
                 # 前向传播
                 # 只在训练阶段计算和更新梯度
@@ -246,7 +227,7 @@ def test_model(model, test_loader, criterion):
     with torch.no_grad():
         for inputs, _, labels in test_loader:
             inputs = inputs.to(device)
-            labels = labels.to(device).unsqueeze(1)
+            labels = labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             preds = outputs > 0.5
