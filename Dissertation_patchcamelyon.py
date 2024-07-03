@@ -13,6 +13,10 @@ import torch.optim as optim
 import time
 import copy
 import torch.nn as nn
+import matplotlib.pyplot as plt
+from skimage.filters import gaussian
+import pywt
+
 
 # 1.定义数据增强函数
 def apply_transforms(image):
@@ -92,7 +96,8 @@ def tissue_segmentation(image):
     
     return tissue_mask
 
-# 4.定义自定义数据集类
+
+# 3.定义自定义数据集类
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None):
         self.data_file = data_file
@@ -131,9 +136,26 @@ class CamelyonDataset(Dataset):
         
         return transforms.ToTensor()(image), transformed_image, label
 
-# 定义模型
-class CamelyonClassifier(nn.Module):
+# 5.1 定义 ResNet 模型
+class ResNetClassifier(nn.Module):
+    """
+    ResNetClassifier is a convolutional neural network model based on the ResNet-18 architecture,
+    pre-trained on ImageNet. This model is adapted for binary classification tasks, specifically
+    designed to classify whether an input image contains tumor tissue or not.
+
+    Attributes:
+        backbone (torchvision.models.resnet.ResNet): The ResNet-18 model with a modified fully connected layer.
+
+    Methods:
+        forward(x): Defines the forward pass of the model.
+    """
+    
     def __init__(self):
+        """
+        Initializes the ResNetClassifier model by loading a pre-trained ResNet-18 model,
+        replacing its fully connected layer with a new layer for binary classification, and
+        printing the number of parameters in the model.
+        """
         super().__init__()
         backbone = models.resnet18(pretrained=True)
         num_ftrs = backbone.fc.in_features
@@ -150,7 +172,101 @@ class CamelyonClassifier(nn.Module):
     def forward(self, x):
         return self.backbone(x)
 
-# 定义训练函数
+
+# 5.2 定义 VGG 模型
+class VGGClassifier(nn.Module):
+    """
+    VGGClassifier is a convolutional neural network model based on the VGG-16 architecture,
+    pre-trained on ImageNet. This model is adapted for binary classification tasks, specifically
+    designed to classify whether an input image contains tumor tissue or not.
+
+    Attributes:
+        backbone (torchvision.models.vgg.VGG): The VGG-16 model with a modified fully connected layer.
+
+    Methods:
+        forward(x): Defines the forward pass of the model.
+    """
+    
+    def __init__(self):
+        """
+        Initializes the VGGClassifier model by loading a pre-trained VGG-16 model,
+        replacing its fully connected layer with a new layer for binary classification, and
+        printing the number of parameters in the model.
+        """
+        super().__init__()
+        backbone = models.vgg16(pretrained=True)
+        num_ftrs = backbone.classifier[-1].in_features
+        backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        self.backbone = backbone
+
+        n_params = sum([p.numel() for p in self.parameters()])
+        print("\n")
+        print("# " * 50)
+        print(f"VGG16 initialized with {n_params:.3e} parameters")
+        print("# " * 50)
+        print("\n")
+
+    def forward(self, x):
+        return self.backbone(x)
+
+
+# 5.3 定义 MobileNetV3 模型
+class MobileNetV3Classifier(nn.Module):
+    """
+    MobileNetV3Classifier is a convolutional neural network model based on the MobileNetV3-Large architecture,
+    pre-trained on ImageNet. This model is adapted for binary classification tasks, specifically
+    designed to classify whether an input image contains tumor tissue or not.
+
+    Attributes:
+        backbone (torchvision.models.mobilenet.MobileNetV3): The MobileNetV3-Large model with a modified fully connected layer.
+
+    Methods:
+        forward(x): Defines the forward pass of the model.
+    """
+    
+    def __init__(self):
+        """
+        Initializes the MobileNetV3Classifier model by loading a pre-trained MobileNetV3-Large model,
+        replacing its fully connected layer with a new layer for binary classification, and
+        printing the number of parameters in the model.
+        """
+        super().__init__()
+        backbone = models.mobilenet_v3_large(pretrained=True)
+        num_ftrs = backbone.classifier[-1].in_features
+        backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        self.backbone = backbone
+
+        n_params = sum([p.numel() for p in self.parameters()])
+        print("\n")
+        print("# " * 50)
+        print(f"MobileNetV3-Large initialized with {n_params:.3e} parameters")
+        print("# " * 50)
+        print("\n")
+
+    def forward(self, x):
+        return self.backbone(x)
+
+
+# 5.4 定义 ShuffleNetV2 模型
+class ShuffleNetV2Classifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = models.shufflenet_v2_x1_0(pretrained=True)
+        num_ftrs = backbone.fc.in_features
+        backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        self.backbone = backbone
+
+        n_params = sum([p.numel() for p in self.parameters()])
+        print("\n")
+        print("# " * 50)
+        print(f"ShuffleNetV2 initialized with {n_params:.3e} parameters")
+        print("# " * 50)
+        print("\n")
+
+    def forward(self, x):
+        return self.backbone(x)
+
+# 6.训练函数
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -215,7 +331,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     model.load_state_dict(best_model_wts)
     return model
 
-# 定义测试函数
+# 7. 测试函数
 def test_model(model, test_loader, criterion):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -239,6 +355,43 @@ def test_model(model, test_loader, criterion):
     test_acc = running_corrects.double() / len(test_loader.dataset)
 
     print(f'Test Loss: {test_loss:.4f} Acc: {test_acc:.4f}')
+    return test_loss, test_acc
+
+
+
+# 8.预测肿瘤区域并生成热力图
+def predict_tumor_regions(model, h5_file, patch_size):
+    with h5py.File(h5_file, 'r') as file:
+        images = file['x'][:]
+    
+    heatmap = np.zeros((images.shape[1], images.shape[2]))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+    
+    with torch.no_grad():
+        for idx in range(images.shape[0]):
+            image = images[idx].astype('uint8')
+            tissue_mask = tissue_segmentation(image)
+            image[tissue_mask == False] = [255, 255, 255]
+            image = Image.fromarray(image, 'RGB')
+            image = transforms.ToTensor()(image).unsqueeze(0).to(device)
+            
+            output = model(image).cpu().numpy()
+            heatmap += output[0, 0]  # 假设单通道输出
+
+    return heatmap
+
+def visualize_heatmap(image, heatmap, output_path, title):
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image, cmap='gray')
+    plt.imshow(heatmap, cmap='jet', alpha=0.5)
+    plt.title(title)
+    plt.colorbar()
+    plt.savefig(output_path)
+    
+    
+
 
 # 主函数
 if __name__ == '__main__':
@@ -263,21 +416,79 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
     # 定义损失函数和优化器
-    model = CamelyonClassifier()
     criterion = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+    models_dict = {
+        'ResNet18': ResNetClassifier(),
+        'VGG16': VGGClassifier(),
+        'MobileNetV3': MobileNetV3Classifier(),
+        'ShuffleNetV2': ShuffleNetV2Classifier()
+    }
+    
+    results = {}
+    heatmaps = {}
 
-    # 训练模型
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10)
+    for model_name, model in models_dict.items():
+        print(f'\nTraining {model_name} model...\n')
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        
+        # 训练模型
+        start_time = time.time()
+        model = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10)
+        end_time = time.time()
+        
+        # 测试模型
+        test_loss, test_acc = test_model(model, test_loader, criterion)
+        
+        # 记录结果
+        results[model_name] = {
+            'Test Loss': test_loss,
+            'Test Accuracy': test_acc.item(),
+            'Runtime': end_time - start_time,
+            'Total Parameters': sum(p.numel() for p in model.parameters() if p.requires_grad)
+        }
 
-    # 测试模型
-    test_model(model, test_loader, criterion)
+        h5_file = 'camedata/camelyonpatch_level_2_split_test_x_subset.h5'  # 修改为实际 H5 文件路径
+        patch_size = 96
+        
+        heatmaps[model_name] = predict_tumor_regions(model, h5_file, patch_size)
 
-    # 保存模型
-    torch.save(model.state_dict(), 'best_model.pth')
 
-    # 打印模型参数数量
-    def count_parameters(model):
-        return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    print(f'Total Parameters: {count_parameters(model)}')
+        
+    
+    # 打印结果
+    for model_name, metrics in results.items():
+        print(f'\n{model_name} Results:')
+        for metric_name, value in metrics.items():
+            print(f'{metric_name}: {value}')
+
+    # 可视化结果
+    model_names = list(results.keys())
+    accuracies = [results[model]['Test Accuracy'] for model in model_names]
+    runtimes = [results[model]['Runtime'] for model in model_names]
+
+    fig, ax1 = plt.subplots()
+
+    color = 'tab:blue'
+    ax1.set_xlabel('Model')
+    ax1.set_ylabel('Accuracy', color=color)
+    ax1.bar(model_names, accuracies, color=color, alpha=0.6, label='Accuracy')
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()
+    color = 'tab:red'
+    ax2.set_ylabel('Runtime (s)', color=color)
+    ax2.plot(model_names, runtimes, color=color, marker='o', label='Runtime')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()
+    plt.title('Model Performance Comparison')
+    plt.savefig('model_performance_comparison.png')  # 保存模型结果图为文件
+    
+
+    # 生成并展示热力图（仅展示部分）
+    for model_name in model_names:
+        with h5py.File(h5_file, 'r') as file:
+            image = file['x'][0].astype('uint8')  # 获取第一张图像
+        visualize_heatmap(image, heatmaps[model_name], f'heatmap_{model_name}.png', f'{model_name} Heatmap')
