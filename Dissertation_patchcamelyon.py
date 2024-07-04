@@ -157,7 +157,7 @@ class ResNetClassifier(nn.Module):
         printing the number of parameters in the model.
         """
         super().__init__()
-        backbone = models.resnet18(pretrained=True)
+        backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         num_ftrs = backbone.fc.in_features
         backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
         self.backbone = backbone
@@ -174,35 +174,21 @@ class ResNetClassifier(nn.Module):
 
 
 # 5.2 定义 VGG 模型
-class VGGClassifier(nn.Module):
-    """
-    VGGClassifier is a convolutional neural network model based on the VGG-16 architecture,
-    pre-trained on ImageNet. This model is adapted for binary classification tasks, specifically
-    designed to classify whether an input image contains tumor tissue or not.
-
-    Attributes:
-        backbone (torchvision.models.vgg.VGG): The VGG-16 model with a modified fully connected layer.
-
-    Methods:
-        forward(x): Defines the forward pass of the model.
-    """
-    
+class ModifiedVGG16(nn.Module):
     def __init__(self):
-        """
-        Initializes the VGGClassifier model by loading a pre-trained VGG-16 model,
-        replacing its fully connected layer with a new layer for binary classification, and
-        printing the number of parameters in the model.
-        """
-        super().__init__()
-        backbone = models.vgg16(pretrained=True)
-        num_ftrs = backbone.classifier[-1].in_features
-        backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
-        self.backbone = backbone
+        super(ModifiedVGG16, self).__init__()
+        self.backbone = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_V1)
+        # 修改第一层的卷积层以适应 96x96 的输入
+        self.backbone.features[0] = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
+        num_ftrs = self.backbone.classifier[-1].in_features
+        self.backbone.classifier[-1] = nn.Sequential(
+            nn.Linear(num_ftrs, 1),
+            nn.Sigmoid())
 
         n_params = sum([p.numel() for p in self.parameters()])
         print("\n")
         print("# " * 50)
-        print(f"VGG16 initialized with {n_params:.3e} parameters")
+        print(f"ModifiedVGG16 initialized with {n_params:.3e} parameters")
         print("# " * 50)
         print("\n")
 
@@ -231,7 +217,7 @@ class MobileNetV3Classifier(nn.Module):
         printing the number of parameters in the model.
         """
         super().__init__()
-        backbone = models.mobilenet_v3_large(pretrained=True)
+        bbackbone = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1)
         num_ftrs = backbone.classifier[-1].in_features
         backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
         self.backbone = backbone
@@ -251,7 +237,7 @@ class MobileNetV3Classifier(nn.Module):
 class ShuffleNetV2Classifier(nn.Module):
     def __init__(self):
         super().__init__()
-        backbone = models.shufflenet_v2_x1_0(pretrained=True)
+        backbone = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1)
         num_ftrs = backbone.fc.in_features
         backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
         self.backbone = backbone
@@ -420,7 +406,7 @@ if __name__ == '__main__':
     
     models_dict = {
         'ResNet18': ResNetClassifier(),
-        'VGG16': VGGClassifier(),
+        'ModifiedVGG16': ModifiedVGG16(),
         'MobileNetV3': MobileNetV3Classifier(),
         'ShuffleNetV2': ShuffleNetV2Classifier()
     }
