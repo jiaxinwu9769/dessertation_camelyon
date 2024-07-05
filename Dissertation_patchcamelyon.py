@@ -352,7 +352,7 @@ def predict_tumor_regions(model, h5_file, patch_size):
     with h5py.File(h5_file, 'r') as file:
         images = file['x'][:]
     
-    heatmap = np.zeros((images.shape[1], images.shape[2]))
+    heatmap = np.zeros((images.shape[0], images.shape[1]))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
