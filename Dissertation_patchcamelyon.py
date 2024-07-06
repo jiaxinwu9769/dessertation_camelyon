@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 from skimage.filters import gaussian
 import pywt
 from sklearn.metrics import roc_auc_score, roc_curve
+import cv2
 
-# 1.定义数据增强函数
 def apply_transforms(image):
     if random.random() > 0.5:
         image = F.hflip(image)
@@ -33,7 +33,6 @@ def apply_transforms(image):
     
     return image_tensor
 
-# 2.定义组织分割函数
 def tissue_segmentation(image):
     image[(image == 0).all(axis=-1)] = [255, 255, 255]
     gray_image = rgb2gray(image)
@@ -41,7 +40,7 @@ def tissue_segmentation(image):
     tissue_mask = gray_image <= 0.8
     return tissue_mask
 
-# 3.定义自定义数据集类
+# 2
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None):
         self.data_file = data_file
@@ -72,64 +71,18 @@ class CamelyonDataset(Dataset):
         label = self.labels[idx]
         return transforms.ToTensor()(image), transformed_image, label
 
-# 5.1 定义 ResNet 模型
-class ResNetClassifier(nn.Module):
+# 3
+class MobileNetV2Classifier(nn.Module):
     def __init__(self):
         super().__init__()
-        backbone = models.resnet18(weights='IMAGENET1K_V1')
-        num_ftrs = backbone.fc.in_features
-        backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        backbone = models.mobilenet_v2(weights='IMAGENET1K_V1')
+        num_ftrs = backbone.classifier[1].in_features
+        backbone.classifier = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
         self.backbone = backbone
 
-        n_params = sum([p.numel() for p in self.parameters()])
-        print("\n")
-        print("# " * 50)
-        print(f"ResNet18 initialized with {n_params:.3e} parameters")
-        print("# " * 50)
-        print("\n")
-
     def forward(self, x):
         return self.backbone(x)
 
-# 5.2 定义 VGG 模型
-class ModifiedVGG16(nn.Module):
-    def __init__(self):
-        super(ModifiedVGG16, self).__init__()
-        self.backbone = models.vgg16(weights='IMAGENET1K_V1')
-        self.backbone.features[0] = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
-        num_ftrs = self.backbone.classifier[-1].in_features
-        self.backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
-
-        n_params = sum([p.numel() for p in self.parameters()])
-        print("\n")
-        print("# " * 50)
-        print(f"ModifiedVGG16 initialized with {n_params:.3e} parameters")
-        print("# " * 50)
-        print("\n")
-
-    def forward(self, x):
-        return self.backbone(x)
-
-# 5.3 定义 MobileNetV3 模型
-class MobileNetV3Classifier(nn.Module):
-    def __init__(self):
-        super().__init__()
-        backbone = models.mobilenet_v3_large(weights='IMAGENET1K_V1')
-        num_ftrs = backbone.classifier[-1].in_features
-        backbone.classifier[-1] = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
-        self.backbone = backbone
-
-        n_params = sum([p.numel() for p in self.parameters()])
-        print("\n")
-        print("# " * 50)
-        print(f"MobileNetV3-Large initialized with {n_params:.3e} parameters")
-        print("# " * 50)
-        print("\n")
-
-    def forward(self, x):
-        return self.backbone(x)
-
-# 5.4 定义 ShuffleNetV2 模型
 class ShuffleNetV2Classifier(nn.Module):
     def __init__(self):
         super().__init__()
@@ -138,18 +91,35 @@ class ShuffleNetV2Classifier(nn.Module):
         backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
         self.backbone = backbone
 
-        n_params = sum([p.numel() for p in self.parameters()])
-        print("\n")
-        print("# " * 50)
-        print(f"ShuffleNetV2 initialized with {n_params:.3e} parameters")
-        print("# " * 50)
-        print("\n")
+    def forward(self, x):
+        return self.backbone(x)
+
+class SqueezeNetClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = models.squeezenet1_0(weights='IMAGENET1K_V1')
+        backbone.classifier[1] = nn.Conv2d(512, 1, kernel_size=(1, 1), stride=(1, 1))
+        self.backbone = backbone
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.sigmoid(x)
+        return x.view(-1, 1)
+
+class ResNetClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = models.resnet18(weights='IMAGENET1K_V1')
+        num_ftrs = backbone.fc.in_features
+        backbone.fc = nn.Sequential(nn.Linear(num_ftrs, 1), nn.Sigmoid())
+        self.backbone = backbone
 
     def forward(self, x):
         return self.backbone(x)
 
-# 6.训练函数
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=10):
+#4 
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=1):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -157,6 +127,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     best_acc = 0.0
     best_auc = 0.0
     since = time.time()
+
+    train_losses = []
+    val_losses = []
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch}/{num_epochs - 1}')
@@ -198,6 +171,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             epoch_acc = running_corrects.double() / len(dataloader.dataset)
             epoch_auc = roc_auc_score(all_labels, all_outputs)
 
+            if phase == 'train':
+                train_losses.append(epoch_loss)
+            else:
+                val_losses.append(epoch_loss)
+
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} AUC: {epoch_auc:.4f}')
 
             if phase == 'val' and epoch_acc > best_acc:
@@ -210,9 +188,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     print(f'Best val Acc: {best_acc:.4f} AUC: {best_auc:.4f}')
 
     model.load_state_dict(best_model_wts)
+    
+    # 绘制损失曲线
+    plt.figure()
+    plt.plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
+    plt.plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title('Training and Validation Loss')
+    plt.savefig('loss_curve.png')
+
     return model, best_acc, best_auc
 
-# 7. 测试函数
+# 5
 def test_model(model, test_loader, criterion):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -243,37 +232,83 @@ def test_model(model, test_loader, criterion):
     print(f'Test Loss: {test_loss:.4f} Acc: {test_acc:.4f} AUC: {test_auc:.4f}')
     return test_loss, test_acc, test_auc
 
-# 8.预测肿瘤区域并生成热力图
-def predict_tumor_regions(model, h5_file, patch_size):
+# 6
+def grad_cam(model, img, target_layer):
+    model.eval()
+    features = []
+    grads = []
+
+    def forward_hook(module, input, output):
+        features.append(output)
+
+    def backward_hook(module, grad_in, grad_out):
+        grads.append(grad_out[0])
+
+    handle_forward = target_layer.register_forward_hook(forward_hook)
+    handle_backward = target_layer.register_backward_hook(backward_hook)
+
+    output = model(img)
+    model.zero_grad()
+    class_loss = output[0]
+    class_loss.backward()
+
+    handle_forward.remove()
+    handle_backward.remove()
+
+    gradients = grads[0]
+    activations = features[0]
+
+    weights = torch.mean(gradients, dim=(2, 3), keepdim=True)
+    cam = torch.sum(weights * activations, dim=1).squeeze().cpu().detach().numpy()
+    cam = np.maximum(cam, 0)
+    cam = cv2.resize(cam, (img.shape[2], img.shape[3]))
+    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+    
+    return cam
+
+def predict_tumor_regions(model, h5_file, model_name, patch_size=96, step_size=48):
     with h5py.File(h5_file, 'r') as file:
         images = file['x'][:]
     
-    heatmap = np.zeros((images.shape[1], images.shape[2]))
+    height, width = images.shape[1], images.shape[2]
+    heatmap = np.zeros((height, width))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    model.eval()
-    
-    with torch.no_grad():
-        for idx in range(images.shape[0]):
-            image = images[idx].astype('uint8')
-            tissue_mask = tissue_segmentation(image)
-            image[tissue_mask == False] = [255, 255, 255]
-            image = Image.fromarray(image, 'RGB')
-            image_tensor = transforms.ToTensor()(image).unsqueeze(0).to(device)
-            
-            output = model(image_tensor).cpu().numpy()
-            heatmap += output[0, 0]  
 
-    return heatmap / len(images)
+    if model_name == 'MobileNetV2':
+        target_layer = model.backbone.features[-1]
+    elif model_name == 'ShuffleNetV2':
+        target_layer = model.backbone.conv5
+    elif model_name == 'SqueezeNet':
+        target_layer = model.backbone.features[-1]
+    elif model_name == 'ResNet18':
+        target_layer = model.backbone.layer4[1].conv2
 
+    for idx in range(images.shape[0]):
+        image = images[idx].astype('uint8')
+        tissue_mask = tissue_segmentation(image)
+        image[tissue_mask == False] = [255, 255, 255]
+        image = Image.fromarray(image, 'RGB')
+        image_tensor = transforms.ToTensor()(image).unsqueeze(0).to(device)
+        
+        cam = grad_cam(model, image_tensor, target_layer)
+        heatmap += cam
+
+    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+    return heatmap
+
+# 7
 def visualize_heatmap(image, heatmap, output_path, title):
     plt.figure(figsize=(10, 10))
-    plt.imshow(image, cmap='gray')
+    plt.imshow(image)
     plt.imshow(heatmap, cmap='jet', alpha=0.5)
     plt.title(title)
     plt.colorbar()
+    plt.axis('off')
     plt.savefig(output_path)
+    plt.close()
 
+# 8
 def save_display_images(original_images, transformed_images, filename):
     fig, axes = plt.subplots(2, len(original_images), figsize=(15, 5))
     for i in range(len(original_images)):
@@ -287,7 +322,6 @@ def save_display_images(original_images, transformed_images, filename):
     plt.tight_layout()
     plt.savefig(filename)
 
-# 主函数
 if __name__ == '__main__':
     train_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_train_x_subset.h5',
                                     'camedata/camelyonpatch_level_2_split_train_y_subset.h5',
@@ -311,10 +345,10 @@ if __name__ == '__main__':
     criterion = nn.BCELoss()
     
     models_dict = {
-        'ResNet18': ResNetClassifier(),
-        'ModifiedVGG16': ModifiedVGG16(),
-        'MobileNetV3': MobileNetV3Classifier(),
-        'ShuffleNetV2': ShuffleNetV2Classifier()
+        'MobileNetV2': MobileNetV2Classifier(),
+        'ShuffleNetV2': ShuffleNetV2Classifier(),
+        'SqueezeNet': SqueezeNetClassifier(),
+        'ResNet18': ResNetClassifier()
     }
     
     results = {}
@@ -337,7 +371,7 @@ if __name__ == '__main__':
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
         
         start_time = time.time()
-        model, best_acc, best_auc = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=1)
+        model, best_acc, best_auc = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=2)
         end_time = time.time()
         
         test_loss, test_acc, test_auc = test_model(model, test_loader, criterion)
@@ -353,9 +387,8 @@ if __name__ == '__main__':
         }
 
         h5_file = 'camedata/camelyonpatch_level_2_split_test_x_subset.h5'
-        patch_size = 96
-        
-        heatmaps[model_name] = predict_tumor_regions(model, h5_file, patch_size)
+
+        heatmaps[model_name] = predict_tumor_regions(model, h5_file, model_name)
 
     for model_name, metrics in results.items():
         print(f'\n{model_name} Results:')
