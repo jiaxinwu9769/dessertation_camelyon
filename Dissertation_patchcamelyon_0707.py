@@ -14,7 +14,7 @@ import time
 import copy
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score, roc_curve, precision_score, recall_score
+from sklearn.metrics import roc_auc_score, precision_score, recall_score
 import cv2
 
 # 数据增强
@@ -278,7 +278,6 @@ def predict_tumor_regions(model, h5_file, model_name, patch_size=96, step_size=4
         images = file['x'][:]
     
     height, width = images.shape[1], images.shape[2]
-    heatmap = np.zeros((height, width))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -293,6 +292,7 @@ def predict_tumor_regions(model, h5_file, model_name, patch_size=96, step_size=4
     elif model_name == 'EfficientNet':
         target_layer = model.backbone.features[-1]
 
+    heatmaps = []
     for idx in range(images.shape[0]):
         image = images[idx].astype('uint8')
         tissue_mask = tissue_segmentation(image)
@@ -301,24 +301,29 @@ def predict_tumor_regions(model, h5_file, model_name, patch_size=96, step_size=4
         image_tensor = transforms.ToTensor()(image).unsqueeze(0).to(device)
         
         cam = grad_cam(model, image_tensor, target_layer)
-        heatmap += cam
+        heatmaps.append(cam)
 
-    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-    return heatmap
+    return heatmaps
 
-# 可视化热力图
-def visualize_heatmap(image, heatmap, output_path, title):
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image)
-    plt.imshow(heatmap, cmap='jet', alpha=0.5)
-    plt.title(title, fontsize=16)
-    plt.colorbar()
-    plt.axis('off')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+# 可视化热力图对比
+def visualize_heatmap_comparison(images, heatmaps, model_name, output_path):
+    fig, axes = plt.subplots(5, 2, figsize=(10, 25))
+    for i in range(5):
+        axes[i, 0].imshow(images[i])
+        axes[i, 0].set_title(f'Original Image {i}')
+        axes[i, 0].axis('off')
+        
+        axes[i, 1].imshow(images[i])
+        heatmap_resized = cv2.resize(heatmaps[i], (images[i].shape[1], images[i].shape[0]))
+        axes[i, 1].imshow(heatmap_resized, cmap='jet', alpha=0.5)
+        axes[i, 1].set_title(f'Heatmap {i}')
+        axes[i, 1].axis('off')
+        
+    plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
 
-# 保存原始图像和增强后的图像
+# 保存原始和增强后的图像
 def save_display_images(original_images, transformed_images, filename):
     fig, axes = plt.subplots(2, len(original_images), figsize=(15, 5))
     for i in range(len(original_images)):
@@ -331,6 +336,7 @@ def save_display_images(original_images, transformed_images, filename):
         axes[1, i].axis('off')
     plt.tight_layout()
     plt.savefig(filename)
+    plt.close()
 
 # 主程序
 if __name__ == '__main__':
@@ -514,6 +520,6 @@ if __name__ == '__main__':
         plt.savefig(f'{model_name}_loss_curve.png')
 
         with h5py.File(h5_file, 'r') as file:
-            for i in range(5):
-                image = file['x'][i].astype('uint8')
-                visualize_heatmap(image, heatmaps[model_name], f'heatmap_{model_name}_{i}.png', f'{model_name} Heatmap {i}')
+            original_images = [file['x'][i].astype('uint8') for i in sample_indices]
+            heatmap_images = heatmaps[model_name]
+            visualize_heatmap_comparison(original_images, heatmap_images, model_name, f'heatmap_comparison_{model_name}.png')
