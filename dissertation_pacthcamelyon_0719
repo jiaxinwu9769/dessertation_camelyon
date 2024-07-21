@@ -21,7 +21,6 @@ import torchprofile
 from thop import profile
 
 
-
 def set_seed(seed):
     # Set the random seed for Python's built-in random module
     random.seed(seed)
@@ -101,7 +100,6 @@ class CamelyonDataset(Dataset):
         label = self.labels[idx]
         return transforms.ToTensor()(image), image_tensor, label
 
-
 class MobileNetV3Classifier(nn.Module):
     def __init__(self):
         super().__init__()
@@ -118,7 +116,6 @@ class MobileNetV3Classifier(nn.Module):
 
     def forward(self, x):
         return self.backbone(x)
-
 
 
 class ShuffleNetV2Classifier(nn.Module):
@@ -138,7 +135,6 @@ class ShuffleNetV2Classifier(nn.Module):
     def forward(self, x):
         return self.backbone(x)
 
-
 class SqueezeNetClassifier(nn.Module):
     def __init__(self):
         super().__init__()
@@ -155,7 +151,6 @@ class SqueezeNetClassifier(nn.Module):
     def forward(self, x):
         x = self.backbone(x)
         return x.view(-1, 1)
-
 
 class ResNetClassifier(nn.Module):
     def __init__(self):
@@ -196,7 +191,7 @@ class EfficientNetClassifier(nn.Module):
 
 
 # 训练函数
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=2):
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=50):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -389,43 +384,39 @@ def calculate_flops(model, input_size=(3, 96, 96)):
     
     return flops, params
 
-# 主程序
+# Main
 if __name__ == '__main__':
-    #Dataset loading and preparation
-    train_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_train_x_subset.h5',
-                                    'camedata/camelyonpatch_level_2_split_train_y_subset.h5',
-                                    'camedata/camelyonpatch_level_2_split_train_meta.csv',
+    train_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_train_x.h5',
+                                    '../camedata/camelyonpatch_level_2_split_train_y.h5',
+                                    '../camedata/camelyonpatch_level_2_split_train_meta.csv',
                                     transform=apply_transforms)
 
-    val_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_valid_x_subset.h5',
-                                  'camedata/camelyonpatch_level_2_split_valid_y_subset.h5',
-                                  'camedata/camelyonpatch_level_2_split_valid_meta.csv',
+    val_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_valid_x.h5',
+                                  '../camedata/camelyonpatch_level_2_split_valid_y.h5',
+                                  '../camedata/camelyonpatch_level_2_split_valid_meta.csv',
                                   transform=apply_transforms)
 
-    test_dataset = CamelyonDataset('camedata/camelyonpatch_level_2_split_test_x_subset.h5',
-                                   'camedata/camelyonpatch_level_2_split_test_y_subset.h5',
-                                   'camedata/camelyonpatch_level_2_split_test_meta.csv',
+    test_dataset = CamelyonDataset('../camedata/camelyonpatch_level_2_split_test_x.h5',
+                                   '../camedata/camelyonpatch_level_2_split_test_y.h5',
+                                   '../camedata/camelyonpatch_level_2_split_test_meta.csv',
                                    test=True)
-    #Load the training, validation, and test datasets and create data loaders for each.
+
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
-    
-    #Using binary cross entropy loss function
+
     criterion = nn.BCELoss()
     
-    #Define a model dictionary to store different models
     models_dict = {
         'MobileNetV3': MobileNetV3Classifier(),
         'ShuffleNetV2': ShuffleNetV2Classifier(),
         'SqueezeNet': SqueezeNetClassifier(),
         'EfficientNet': EfficientNetClassifier(),
-        'ResNet18': ResNetClassifier()
+        'ResNet18': ResNetClassifier(),
     }
     
     # 定义model_names变量
     model_names = list(models_dict.keys())
-
 
     # 打印各个模型的简化结构
     for model_name, model in models_dict.items():
@@ -441,7 +432,7 @@ if __name__ == '__main__':
     val_runtimes = {}
     flops_dict = {}
 
-    # 随机选择几张图像并展示
+    # Randomly select a few images and display them
     sample_indices = random.sample(range(len(train_dataset)), 5)
     original_images = []
     transformed_images = []
@@ -453,7 +444,6 @@ if __name__ == '__main__':
     
     save_display_images(original_images, transformed_images, 'original_and_transformed_images.png')
 
-    #Model training and evaluation
     for model_name, model in models_dict.items():
         print(f'\n[Training {model_name} model...]\n')
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)  # Adding L2 regularization
@@ -461,18 +451,16 @@ if __name__ == '__main__':
         criterion = nn.BCELoss()
         early_stopping = EarlyStopping(patience=10, delta=0.01)
 
-        # 对每个模型进行训练，记录最佳准确率和AUC，以及训练和验证集的损失和准确率。
-        model, best_acc, best_auc, train_losses, val_losses, train_accuracies, val_accuracies = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=2)
+    # Train the model and record the validation set running time
+        model, best_acc, best_auc, train_losses, val_losses, train_accuracies, val_accuracies = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs=50)
         val_runtime = validation_runtime(model, val_loader)
         
-        #Evaluate on the test set and record the test loss, accuracy, AUC, precision, and recall.
         test_loss, test_acc, test_auc, test_precision, test_recall = test_model(model, test_loader, criterion)
         
-        #计算模型参数总数和每张图像的推理时间
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         inference_time = validation_runtime(model, test_loader) / len(test_loader.dataset)
         
-        # 计算模型的FLOPs
+        # 计算FLOPs
         flops, params = calculate_flops(model)
         flops_dict[model_name] = flops
 
@@ -484,6 +472,7 @@ if __name__ == '__main__':
             'Recall': test_recall,
             'Total Parameters': total_params,
             'Inference Time per Image': inference_time,
+            'Validation Runtime': val_runtime, 
             'FLOPs': flops
         }
 
@@ -494,13 +483,12 @@ if __name__ == '__main__':
         train_accuracies_dict[model_name] = train_accuracies
         val_accuracies_dict[model_name] = val_accuracies
 
-    # 结果存储
-    # 打印每个模型的结果
+
     for model_name, metrics in results.items():
         print(f'\n{model_name} Results:')
         for metric_name, value in metrics.items():
             print(f'{metric_name}: {value}')
-    #提取各项指标，准备绘图
+
     model_names = list(results.keys())
     accuracies = [results[model]['Test Accuracy'] for model in model_names]
     aucs = [results[model]['Test AUC'] for model in model_names]
@@ -511,7 +499,7 @@ if __name__ == '__main__':
     flops_values = [results[model]['FLOPs'] for model in model_names]
     val_runtime_values = [val_runtimes[model] for model in model_names]
 
-    # 绘制训练和验证精度曲线
+   # 绘制训练和验证精度曲线
     for model_name in model_names:
         train_accuracies = [to_cpu_numpy(acc) for acc in train_accuracies_dict[model_name]]
         val_accuracies = [to_cpu_numpy(acc) for acc in val_accuracies_dict[model_name]]
@@ -541,6 +529,7 @@ if __name__ == '__main__':
         plt.savefig(f'{model_name}_loss_curve.png')
         plt.close()
 
+
     # Plotting other metrics
     # 图表1: Model Accuracy and Inference Time Comparison
     fig, ax1 = plt.subplots()
@@ -548,7 +537,7 @@ if __name__ == '__main__':
     color = 'tab:blue'
     ax1.set_xlabel('Model')
     ax1.set_ylabel('Accuracy', color=color)
-    ax1.bar(model_names, accuracies, color=color, alpha=0.6, label='Accuracy')
+    ax1.bar(model_names, accuracies, color=color, alpha=0.8, label='Accuracy')
     ax1.tick_params(axis='y', labelcolor=color)
 
     ax2 = ax1.twinx()
@@ -567,7 +556,7 @@ if __name__ == '__main__':
     color = 'tab:green'
     ax3.set_xlabel('Model')
     ax3.set_ylabel('Validation Runtime (s)', color=color)
-    ax3.bar(model_names, val_runtime_values, color=color, alpha=0.6, label='Validation Runtime')
+    ax3.bar(model_names, val_runtime_values, color=color, alpha=0.8, label='Validation Runtime')
     ax3.tick_params(axis='y', labelcolor=color)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -577,7 +566,7 @@ if __name__ == '__main__':
     # 图表3: Model Parameters Comparison
     fig, ax4 = plt.subplots()
 
-    color = 'tab:purple'
+    color = 'tab:green'
     ax4.set_xlabel('Model')
     ax4.set_ylabel('Total Parameters', color=color)
     ax4.bar(model_names, params, color=color, alpha=0.6, label='Total Parameters')
@@ -590,10 +579,10 @@ if __name__ == '__main__':
     # 图表4: Model Inference Time Comparison
     fig, ax5 = plt.subplots()
 
-    color = 'tab:orange'
+    color = 'tab:green'
     ax5.set_xlabel('Model')
     ax5.set_ylabel('Inference Time (s)', color=color)
-    ax5.bar(model_names, inf_times, color=color, alpha=0.6, label='Inference Time')
+    ax5.bar(model_names, inf_times, color=color, alpha=0.8, label='Inference Time')
     ax5.tick_params(axis='y', labelcolor=color)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -603,10 +592,10 @@ if __name__ == '__main__':
     # 图表5: Model Precision Comparison
     fig, ax6 = plt.subplots()
 
-    color = 'tab:brown'
+    color = 'tab:blue'
     ax6.set_xlabel('Model')
     ax6.set_ylabel('Precision', color=color)
-    ax6.bar(model_names, precisions, color=color, alpha=0.6, label='Precision')
+    ax6.bar(model_names, precisions, color=color, alpha=0.8, label='Precision')
     ax6.tick_params(axis='y', labelcolor=color)
     
     fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -616,27 +605,41 @@ if __name__ == '__main__':
     # 图表6: Model Recall Comparison
     fig, ax7 = plt.subplots()
 
-    color = 'tab:cyan'
+    color = 'tab:blue'
     ax7.set_xlabel('Model')
     ax7.set_ylabel('Recall', color=color)
-    ax7.bar(model_names, recalls, color=color, alpha=0.6, label='Recall')
+    ax7.bar(model_names, recalls, color=color, alpha=0.8, label='Recall')
     ax7.tick_params(axis='y', labelcolor=color)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     plt.title('Model Recall Comparison')
     plt.savefig('model_recall_comparison.png')
 
-    # 图表7: Model FLOPs Comparison
+     # 图表7: Model FLOPs Comparison
     fig, ax8 = plt.subplots()
 
-    color = 'tab:pink'
+    color = 'tab:green'
     ax8.set_xlabel('Model')
     ax8.set_ylabel('FLOPs', color=color)
-    ax8.bar(model_names, flops_values, color=color, alpha=0.6, label='FLOPs')
+    ax8.bar(model_names, flops_values, color=color, alpha=0.8, label='FLOPs')
     ax8.tick_params(axis='y', labelcolor=color)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     plt.title('Model FLOPs Comparison')
     plt.savefig('model_flops_comparison.png')
 
-    print("Training and evaluation completed, and plots are saved.")
+    # 图表8: Model AUC Comparison
+    fig, ax9 = plt.subplots()
+
+    color = 'tab:blue'
+    ax9.set_xlabel('Model')
+    ax9.set_ylabel('AUC', color=color)
+    ax9.bar(model_names, aucs, color=color, alpha=0.8, label='AUC')
+    ax9.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.title('Model AUC Comparison')
+    plt.savefig('model_auc_comparison.png')
+
+
+    print("Training and evaluation completed, and plots are saved as files.")
