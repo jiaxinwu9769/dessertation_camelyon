@@ -48,27 +48,25 @@ set_seed(2024)
 
 ### 1. Image augmentation
 
-def apply_transforms(image):
-     """
-     Apply a series of random transformations to the image.
-     Args: image (PIL.Image): The input image to be transformed.
-     Returns: Tensor: The transformed image as a tensor, normalized with mean [0.5, 0.5, 0.5] and std [0.5, 0.5, 0.5].
-     """
-     
+def apply_transforms(self, image):
+    """
+        Apply a series of random transformations to the image.
+        Args: image (PIL.Image): The input image to be transformed.
+        Returns: Tensor: The transformed image as a tensor, normalized with mean [0.5, 0.5, 0.5] and std [0.5, 0.5, 0.5].
+    """
     if random.random() > 0.5:
         image = F.hflip(image)
-    
+        
     angles = [90, 180, 270]
     angle = random.choice(angles)
     image = F.rotate(image, angle)
 
-    image = transforms.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1)(image)
-    #image = transforms.ColorJitter(brightness=0.25, contrast=0.75, saturation=0.25, hue=0.04)(image)
+    image = transforms.ColorJitter(brightness=0.4, contrast=0.5, saturation=0.3, hue=0.1)(image)
+        
     image_tensor = F.to_tensor(image)
     image_tensor = F.normalize(image_tensor, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    
+        
     return image_tensor
-
 
 
 
@@ -77,7 +75,7 @@ def apply_transforms(image):
 
 class CamelyonDataset(Dataset):
     def __init__(self, data_file, labels_file, meta_file, transform=None, test=False):
-       """
+        """
         Initialize the dataset.
 
         Args:
@@ -157,7 +155,7 @@ def show_images(images, title, filename):
 def compare_train_val_images(train_dataset, val_dataset, num_images=20):
     
     def get_images_by_label(dataset, label, num_images):
-            """
+        """
         Obtain a specified number of images from the dataset based on labels
 
         argument:
@@ -167,7 +165,7 @@ def compare_train_val_images(train_dataset, val_dataset, num_images=20):
 
         return: selected images
         """
-        
+            
         # Filter out all image indexes that match the specified tags
         indices = [i for i in range(len(dataset)) if int(dataset[i][2].item()) == label]
         
@@ -597,7 +595,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
 
 ####  7.Test function
 def test_model(model, test_loader, criterion):
-     """
+    """
     Evaluate the performance of a trained model on a test dataset.
 
     This function calculates and returns various performance metrics for the model,
