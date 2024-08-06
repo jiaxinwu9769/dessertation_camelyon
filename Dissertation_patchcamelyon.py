@@ -48,7 +48,7 @@ set_seed(2024)
 
 ### 1. Image augmentation
 
-def apply_transforms(self, image):
+def apply_transforms(image):
     """
         Apply a series of random transformations to the image.
         Args: image (PIL.Image): The input image to be transformed.
