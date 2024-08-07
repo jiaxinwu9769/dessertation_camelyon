@@ -1,2 +1,24 @@
 6/6/2024
 create github repository
+
+*Camelyon Dissertation Project*
+
+This repository contains the code and data for my dissertation project.
+
+
+File Description:
+
+1. The package used is in 'requirements.txt'
+
+2. data set：
+    /camedata/
+
+3. Code file path：
+    /scripts/Dissertation_patchcamelyon.py 
+4.  /scripts/subsetdata.py   (It's used to extract a small piece of data and check the code running on my laptop)
+
+5. plots and result file ：
+    /output/
+    /output_file/slurm-4609.out
+6. Experiment log file：
+    experiment_record.txt
