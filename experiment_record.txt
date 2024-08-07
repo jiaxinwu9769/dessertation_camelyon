@@ -1,0 +1,78 @@
+
+0711
+1. Confirm if `runtime` refers to the entire epoch or just the test set.
+2. Compare accuracy and inference time graphs; time taken for inference on a single image in the test set.
+3. optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+   Adding L2 regularization.
+
+4. `scheduler = StepLR(optimizer, step_size=10, gamma=0.1)`  # Reduce LR by a factor of 0.1 every 10 epochs
+   Implementing dynamic learning rate adjustment.
+
+5. Implement early stopping method:
+   early_stopping(epoch_loss, model)
+       if early_stopping.early_stop:
+           print("Early stopping")
+           model.load_state_dict(best_model_wts)
+           return model, best_acc, best_auc, train_losses, val_losses
+
+
+0715
+Adjusting for overfitting:
+1. Modify data augmentation parameters:
+   `image = transforms.ColorJitter(brightness=0.4, contrast=0.5, saturation=0.3, hue=0.1)(image)`
+2. Add dropout to each model.
+3. Add accuracy curve.
+4. Adjust models to accommodate input size, modify the first convolutional layer for better adaptation to 96x96 input images.
+
+
+0718
+Add Flops comparison.
+Resolve GPU issues.
+
+0719
+Adjust Flops input size to 96x96.
+Change transformed image display to training set.
+
+0721
+1. Add results output for validation runtime comparison.
+2. Include AUC comparison in graphs.
+3. Change colors to blue and green.
+
+0723
+1. Batch size set to 64.
+2. Test without segmentation and data augmentation.
+3. Explore data, examine data distribution.
+4. Display images of '0' and '1' from training and validation sets.
+
+0724
+1. add augmentation
+2. add dropout to feature extraction (not effective).
+3. Remove learning rate decay.
+4. Increase L2 weight decay to 1e-3 (effective in reducing fluctuations but still significant gaps).
+5. Add new samples to data augmentation (no improvement).
+6. Check dataset statistics: mean, standard deviation.
+7. Batch size changed to 128.
+8. Increase L2 weight decay to 0.01.
+9. Modify dropout to 0.7 for fully connected layers in each model.
+
+0725
+1. Use StepLR, lr=0.001, weight_decay=0.001. Use original MobilenetV3, adjust neuron count, add dropout in the middle.
+   `nn.Linear(num_ftrs, 256)` - reduce neuron count.
+2. Adjust weight_decay=0.01
+3. Dropout = 0.8
+4. Batch size = 128
+
+0727
+lr = 0.0001
+Batch size = 64
+
+0728
+Modify the first layer of the model; remove and see what's the impact.
+lr = 0.001
+Batch size = 128
+
+0730
+1. Comment out `# squeezenet` in model dict; exclude it from comparison charts.
+2. Remove validation runtime; rename defined function to `runtime`.
+3. Modify chart order, include new charts for three metrics comparison.
+4. Modify the  accuracy chart, remove lines.
